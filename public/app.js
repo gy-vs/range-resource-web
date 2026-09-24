@@ -1,0 +1,1 @@
+document.querySelector('#read').onclick = async () => { const response = await fetch('/api/resources/sample?start=4&end=12'); document.querySelector('#part').textContent = JSON.stringify(await response.json(), null, 2); };
