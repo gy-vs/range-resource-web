@@ -1,1 +1,127 @@
-<!doctype html><html><body><main><h1>Range resource browser</h1><button id="read">Read middle range</button><pre id="part"></pre></main><script type="module" src="/app.js"></script></body></html>
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>资源范围读取 · 断点校验浏览器</title>
+<style>
+  :root { color-scheme: light; }
+  body { font: 14px/1.5 system-ui, sans-serif; margin: 0; background: #f6f7f9; color: #1c2330; }
+  main { max-width: 1080px; margin: 0 auto; padding: 20px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: #667; margin: 0 0 16px; font-size: 13px; }
+  section { background: #fff; border: 1px solid #e2e5ea; border-radius: 10px; padding: 14px 16px; margin-bottom: 14px; }
+  h2 { font-size: 14px; margin: 0 0 10px; color: #33405c; }
+  label { color: #44506a; font-size: 13px; }
+  input[type=number], input[type=text], textarea {
+    font: inherit; border: 1px solid #c8cdd6; border-radius: 6px; padding: 5px 8px; background: #fff;
+  }
+  input[type=number] { width: 90px; }
+  input[type=text]#resource-id { width: 140px; }
+  textarea { width: 100%; box-sizing: border-box; min-height: 70px; font-family: ui-monospace, monospace; font-size: 12px; }
+  button { font: inherit; border: 1px solid #c8cdd6; background: #f1f3f6; border-radius: 6px; padding: 5px 12px; cursor: pointer; }
+  button:hover { background: #e7eaef; }
+  button.primary { background: #2457d6; border-color: #2457d6; color: #fff; }
+  button.primary:hover { background: #1d49b8; }
+  button.danger { background: #fff; border-color: #d8a0a0; color: #a23030; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; }
+  .row:last-child { margin-bottom: 0; }
+  .status { font-size: 13px; }
+  .pill { display: inline-block; border-radius: 999px; padding: 1px 9px; font-size: 12px; margin-left: 6px; }
+  .pill.ok { background: #e2f5e8; color: #1d6b35; }
+  .pill.pin { background: #e7ecfd; color: #2b47a8; }
+  .pill.err { background: #fdeaea; color: #a23030; }
+  .banner { border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; font-size: 13px; }
+  .banner.conflict { background: #fff4e0; border: 1px solid #ecc886; }
+  .banner.missing { background: #fdeaea; border: 1px solid #e3a3a3; }
+  .banner .row { margin-top: 8px; }
+  .view { border: 1px solid #dfe3ea; border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; }
+  .view.active { border-color: #2457d6; box-shadow: 0 0 0 1px #2457d6 inset; }
+  .track { display: flex; width: 100%; height: 18px; border-radius: 5px; overflow: hidden; background: #eef0f4; margin: 8px 0 4px; }
+  .blk { background: #9dbcf5; border-right: 1px solid #fff; box-sizing: border-box; }
+  .blk.mis { background: repeating-linear-gradient(45deg, #e08b8b, #e08b8b 5px, #f3c1c1 5px, #f3c1c1 10px); }
+  .blk-head { font-size: 12px; color: #667; }
+  pre.bytes { background: #0f1726; color: #d7e2f7; border-radius: 8px; padding: 10px 12px; margin: 8px 0 0;
+    font: 12px/1.55 ui-monospace, monospace; white-space: pre-wrap; word-break: break-all; max-height: 280px; overflow: auto; }
+  .gap { color: #b8862e; font-size: 12px; }
+  .mis-msg { color: #a23030; font-size: 12px; }
+  .fail { color: #a23030; font-size: 12px; margin-top: 4px; }
+  .hist { font-size: 12px; color: #667; }
+  ul.events { list-style: none; margin: 0; padding: 0; max-height: 220px; overflow: auto; font-size: 12px;
+    font-family: ui-monospace, monospace; }
+  ul.events li { padding: 2px 0; border-bottom: 1px dotted #e8eaee; }
+  ul.events li.ok { color: #1d6b35; }
+  ul.events li.error { color: #a23030; }
+  ul.events li.warn { color: #9a6b12; }
+  ul.events li.debug { color: #8a93a3; }
+  .muted { color: #7c8496; font-size: 12px; }
+  details { margin-top: 8px; }
+  summary { cursor: pointer; font-size: 13px; color: #44506a; }
+  .bound { font-family: ui-monospace, monospace; font-size: 12px; color: #33405c; }
+</style>
+</head>
+<body>
+<main>
+  <h1>资源范围读取 · 断点校验浏览器</h1>
+  <p class="sub">只请求所选字节区间；片段按资源版本分库保存，校验通过且边界相邻才能拼接。资源更新会表现为版本冲突，删除不会被伪装成空内容。</p>
+
+  <section>
+    <h2>1 · 资源</h2>
+    <div class="row">
+      <label>资源 ID <input type="text" id="resource-id" value="sample"></label>
+      <button id="load-resource" class="primary">打开资源</button>
+    </div>
+    <div class="row">
+      <label>更新内容（PUT，版本 +1）</label>
+    </div>
+    <div class="row">
+      <textarea id="put-content"></textarea>
+    </div>
+    <div class="row">
+      <button id="put">PUT 更新资源</button>
+      <button id="fill-v2">填入 1000 字节示例内容</button>
+      <button id="delete" class="danger">DELETE 删除资源</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>2 · 选择字节区间并读取片段</h2>
+    <div class="row">
+      <label>start <input type="number" id="start" value="400" min="0" step="1"></label>
+      <label>end <input type="number" id="end" value="500" min="1" step="1"></label>
+      <button id="read-range" class="primary">读取范围（/range，206）</button>
+      <button id="read-prev">读前一段</button>
+      <button id="read-next">读后一段</button>
+      <button id="force">重新校验（忽略缓存）</button>
+      <button id="cancel">取消在途请求</button>
+      <button id="retry">重试失败</button>
+    </div>
+    <div class="row">
+      <button id="full-read">完整读取（旧接口 GET 整个资源，仅用于对照）</button>
+    </div>
+    <div id="banners"></div>
+    <div id="status" class="status muted">尚未打开资源。</div>
+  </section>
+
+  <section>
+    <h2>3 · 按版本保存的局部视图（连续块 = 可拼接，缺口必须重新取）</h2>
+    <div id="views"><p class="muted">读取片段后这里会按版本显示连续块、缺口、重叠冲突与历史片段。</p></div>
+  </section>
+
+  <section>
+    <h2>4 · 完整读取对照（旧流程，不参与拼接）</h2>
+    <details>
+      <summary>展开完整读取结果</summary>
+      <pre id="full-out" class="bytes"></pre>
+    </details>
+  </section>
+
+  <section>
+    <h2>5 · 事件日志（版本、边界、取消与迟到响应）</h2>
+    <ul id="events" class="events"></ul>
+  </section>
+</main>
+<script type="module" src="/app.js"></script>
+</body>
+</html>
